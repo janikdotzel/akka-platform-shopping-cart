@@ -72,7 +72,17 @@ class ShoppingCartSpec
       result3.reply.isError should ===(true)
     }
 
-    //"reject already checked out cart"
+    "get" in {
+      val result1 =
+        eventSourcedTestKit.runCommand[StatusReply[ShoppingCart.Summary]](
+          ShoppingCart.AddItem("foo", 42, _))
+      result1.reply.isSuccess should ===(true)
+
+      val result2 = eventSourcedTestKit.runCommand[ShoppingCart.Summary](
+        ShoppingCart.Get(_))
+      result2.reply should ===(
+        ShoppingCart.Summary(Map("foo" -> 42), checkedOut = false))
+    }
 
   }
 

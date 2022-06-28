@@ -40,6 +40,8 @@ object ShoppingCart {
   final case class Checkout(replyTo: ActorRef[StatusReply[Summary]])
       extends Command
 
+  final case class Get(replyTo: ActorRef[Summary]) extends Command
+
   /**
    * Summary of the shopping cart state, used in reply messages.
    */
@@ -85,7 +87,10 @@ object ShoppingCart {
     val empty: State = State(items = Map.empty, None)
   }
 
-  def checkedOutShoppingCart(cartId: String, state: State, command: Command): ReplyEffect[Event, State] = {
+  def checkedOutShoppingCart(
+      cartId: String,
+      state: State,
+      command: Command): ReplyEffect[Event, State] = {
     command match {
       case cmd: AddItem =>
         Effect.reply(cmd.replyTo)(
@@ -94,6 +99,8 @@ object ShoppingCart {
       case cmd: Checkout =>
         Effect.reply(cmd.replyTo)(
           StatusReply.Error("Can't checkout already checked out shopping cart"))
+      case cmd: Get =>
+        Effect.reply(cmd.replyTo)(state.toSummary)
     }
   }
 
@@ -126,6 +133,8 @@ object ShoppingCart {
             .persist(CheckedOut(cartId, Instant.now()))
             .thenReply(replyTo)(updatedCart =>
               StatusReply.Success(updatedCart.toSummary))
+      case Get(replyTo) =>
+        Effect.reply(replyTo)(state.toSummary)
     }
   }
 
@@ -143,6 +152,8 @@ object ShoppingCart {
     event match {
       case ItemAdded(_, itemId, quantity) =>
         state.updateItem(itemId, quantity)
+      case CheckedOut(_, eventTime) =>
+        state.checkout(eventTime)
     }
   }
 

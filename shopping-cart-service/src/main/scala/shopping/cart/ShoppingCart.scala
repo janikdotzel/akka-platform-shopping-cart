@@ -43,7 +43,8 @@ object ShoppingCart {
   /**
    * Summary of the shopping cart state, used in reply messages.
    */
-  final case class Summary(items: Map[String, Int], checkedOut: Boolean) extends CborSerializable
+  final case class Summary(items: Map[String, Int], checkedOut: Boolean)
+      extends CborSerializable
 
   /**
    * This interface defines all the events that the ShoppingCart supports.
@@ -69,7 +70,7 @@ object ShoppingCart {
 
     def toSummary: Summary = Summary(items, isCheckedOut)
 
-    def checkout(now: Instant): State = State(items,Some(now))
+    def checkout(now: Instant): State = State(items, Some(now))
 
     def isCheckedOut: Boolean = checkOutDate.isDefined
 
@@ -84,9 +85,22 @@ object ShoppingCart {
     val empty: State = State(items = Map.empty, None)
   }
 
-  def checkedOutShoppingCart(cartId: String, state: State, command: Command) = ???
+  def checkedOutShoppingCart(cartId: String, state: State, command: Command): ReplyEffect[Event, State] = {
+    command match {
+      case cmd: AddItem =>
+        Effect.reply(cmd.replyTo)(
+          StatusReply.Error(
+            "Can't add an item to an already checked out shopping cart"))
+      case cmd: Checkout =>
+        Effect.reply(cmd.replyTo)(
+          StatusReply.Error("Can't checkout already checked out shopping cart"))
+    }
+  }
 
-  def openShoppingCart(cartId: String, state: State, command: Command): ReplyEffect[Event, State] = {
+  def openShoppingCart(
+      cartId: String,
+      state: State,
+      command: Command): ReplyEffect[Event, State] = {
     command match {
       case AddItem(itemId, quantity, replyTo) =>
         if (state.hasItem(itemId))
@@ -100,7 +114,8 @@ object ShoppingCart {
           Effect
             .persist(ItemAdded(cartId, itemId, quantity))
             .thenReply(replyTo) { updatedCart =>
-              StatusReply.Success(Summary(updatedCart.items, checkedOut = false))
+              StatusReply.Success(
+                Summary(updatedCart.items, checkedOut = false))
             }
       case Checkout(replyTo) =>
         if (state.isEmpty)

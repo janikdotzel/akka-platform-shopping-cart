@@ -84,6 +84,17 @@ class ShoppingCartSpec
         ShoppingCart.Summary(Map("foo" -> 42), checkedOut = false))
     }
 
+    "remove item from cart" in {
+      val result1 = eventSourcedTestKit.runCommand[StatusReply[ShoppingCart.Summary]](
+        ref => ShoppingCart.AddItem("banana", 1, ref))
+      result1.reply.isSuccess should ===(true)
+      val result2 = eventSourcedTestKit.runCommand[StatusReply[ShoppingCart.Summary]](
+        ref => ShoppingCart.RemoveItem("banana", ref))
+      result2.reply should ===(
+        StatusReply.Success(ShoppingCart.Summary(Map.empty, checkedOut = false))
+      )
+    }
+
   }
 
 }

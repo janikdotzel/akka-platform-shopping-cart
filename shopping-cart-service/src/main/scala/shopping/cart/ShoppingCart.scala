@@ -20,20 +20,17 @@ import scala.concurrent.duration.DurationInt
 
 object ShoppingCart {
 
-  /**
-   * This interface defines all the commands (messages) that the ShoppingCart actor supports.
-   */
+  // Commands
   sealed trait Command extends CborSerializable
 
-  /**
-   * A command to add an item to the cart.
-   *
-   * It replies with `StatusReply[Summary]`, which is sent back to the caller when
-   * all the events emitted by this command are successfully persisted.
-   */
   final case class AddItem(
       itemId: String,
       quantity: Int,
+      replyTo: ActorRef[StatusReply[Summary]])
+      extends Command
+
+  final case class RemoveItem(
+      itemId: String,
       replyTo: ActorRef[StatusReply[Summary]])
       extends Command
 
@@ -42,21 +39,17 @@ object ShoppingCart {
 
   final case class Get(replyTo: ActorRef[Summary]) extends Command
 
-  /**
-   * Summary of the shopping cart state, used in reply messages.
-   */
+  // Messages
   final case class Summary(items: Map[String, Int], checkedOut: Boolean)
       extends CborSerializable
 
-  /**
-   * This interface defines all the events that the ShoppingCart supports.
-   */
-  sealed trait Event extends CborSerializable {
-    def cartId: String
-  }
+  // Events
+  sealed trait Event extends CborSerializable { def cartId: String }
 
   final case class ItemAdded(cartId: String, itemId: String, quantity: Int)
       extends Event
+
+  final case class ItemRemoved(cartId: String, itemId: String) extends Event
 
   final case class CheckedOut(cartId: String, eventTime: Instant) extends Event
 
@@ -64,15 +57,15 @@ object ShoppingCart {
   final case class State(items: Map[String, Int], checkOutDate: Option[Instant])
       extends CborSerializable {
 
-    def hasItem(itemId: String): Boolean =
-      items.contains(itemId)
+    def hasItem(itemId: String): Boolean = items.contains(itemId)
 
-    def isEmpty: Boolean =
-      items.isEmpty
+    def isEmpty: Boolean = items.isEmpty
 
     def toSummary: Summary = Summary(items, isCheckedOut)
 
     def checkout(now: Instant): State = State(items, Some(now))
+
+    def removeItem(itemId: String): State = copy(items = items - itemId)
 
     def isCheckedOut: Boolean = checkOutDate.isDefined
 
@@ -83,8 +76,53 @@ object ShoppingCart {
       }
     }
   }
+
   object State {
     val empty: State = State(items = Map.empty, None)
+  }
+
+  val EntityKey: EntityTypeKey[Command] =
+    EntityTypeKey[Command]("ShoppingCart")
+
+  def init(system: ActorSystem[_]): Unit = {
+    ClusterSharding(system).init(Entity(EntityKey) { entityContext =>
+      ShoppingCart(entityContext.entityId)
+    })
+  }
+
+  def apply(cartId: String): Behavior[Command] = {
+    EventSourcedBehavior
+      .withEnforcedReplies[Command, Event, State](
+        persistenceId = PersistenceId(EntityKey.name, cartId),
+        emptyState = State.empty,
+        commandHandler =
+          (state, command) => handleCommand(cartId, state, command),
+        eventHandler = (state, event) => handleEvent(state, event))
+      .withRetention(RetentionCriteria
+        .snapshotEvery(numberOfEvents = 100, keepNSnapshots = 3))
+      .onPersistFailure(
+        SupervisorStrategy.restartWithBackoff(200.millis, 5.seconds, 0.1))
+  }
+
+  private def handleCommand(
+      cartId: String,
+      state: State,
+      command: Command): ReplyEffect[Event, State] = {
+    if (state.isCheckedOut)
+      checkedOutShoppingCart(cartId, state, command)
+    else
+      openShoppingCart(cartId, state, command)
+  }
+
+  private def handleEvent(state: State, event: Event) = {
+    event match {
+      case ItemAdded(_, itemId, quantity) =>
+        state.updateItem(itemId, quantity)
+      case CheckedOut(_, eventTime) =>
+        state.checkout(eventTime)
+      case ItemRemoved(_, itemId) =>
+        state.removeItem(itemId)
+    }
   }
 
   def checkedOutShoppingCart(
@@ -101,6 +139,10 @@ object ShoppingCart {
           StatusReply.Error("Can't checkout already checked out shopping cart"))
       case cmd: Get =>
         Effect.reply(cmd.replyTo)(state.toSummary)
+      case cmd: RemoveItem =>
+        Effect.reply(cmd.replyTo)(
+          StatusReply.Error(
+            "Can't remove an item from an already checked out shopping cart"))
     }
   }
 
@@ -135,48 +177,11 @@ object ShoppingCart {
               StatusReply.Success(updatedCart.toSummary))
       case Get(replyTo) =>
         Effect.reply(replyTo)(state.toSummary)
+      case RemoveItem(itemId, replyTo) =>
+        Effect
+          .persist(ItemRemoved(cartId, itemId))
+          .thenReply(replyTo)(updatedCart =>
+            StatusReply.Success(updatedCart.toSummary))
     }
-  }
-
-  private def handleCommand(
-      cartId: String,
-      state: State,
-      command: Command): ReplyEffect[Event, State] = {
-    if (state.isCheckedOut)
-      checkedOutShoppingCart(cartId, state, command)
-    else
-      openShoppingCart(cartId, state, command)
-  }
-
-  private def handleEvent(state: State, event: Event) = {
-    event match {
-      case ItemAdded(_, itemId, quantity) =>
-        state.updateItem(itemId, quantity)
-      case CheckedOut(_, eventTime) =>
-        state.checkout(eventTime)
-    }
-  }
-
-  val EntityKey: EntityTypeKey[Command] =
-    EntityTypeKey[Command]("ShoppingCart")
-
-  def init(system: ActorSystem[_]): Unit = {
-    ClusterSharding(system).init(Entity(EntityKey) { entityContext =>
-      ShoppingCart(entityContext.entityId)
-    })
-  }
-
-  def apply(cartId: String): Behavior[Command] = {
-    EventSourcedBehavior
-      .withEnforcedReplies[Command, Event, State](
-        persistenceId = PersistenceId(EntityKey.name, cartId),
-        emptyState = State.empty,
-        commandHandler =
-          (state, command) => handleCommand(cartId, state, command),
-        eventHandler = (state, event) => handleEvent(state, event))
-      .withRetention(RetentionCriteria
-        .snapshotEvery(numberOfEvents = 100, keepNSnapshots = 3))
-      .onPersistFailure(
-        SupervisorStrategy.restartWithBackoff(200.millis, 5.seconds, 0.1))
   }
 }

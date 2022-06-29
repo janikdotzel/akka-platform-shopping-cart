@@ -8,7 +8,7 @@ import akka.grpc.GrpcServiceException
 import akka.util.Timeout
 import io.grpc.Status
 import org.slf4j.LoggerFactory
-import shopping.cart.proto.{ Cart, CheckoutRequest, GetCartRequest }
+import shopping.cart.proto.{Cart, CheckoutRequest, GetCartRequest, RemoveItemRequest}
 
 class ShoppingCartServiceImpl(system: ActorSystem[_])
     extends proto.ShoppingCartService {
@@ -71,6 +71,15 @@ class ShoppingCartServiceImpl(system: ActorSystem[_])
         else
           toProtoCart(cart)
       }
+    convertError(response)
+  }
+
+  override def removeItem(in: RemoveItemRequest): Future[Cart] = {
+    logger.info("removeItem {} to cart {}", in.itemId, in.cartId)
+    val entityRef = sharding.entityRefFor(ShoppingCart.EntityKey, in.cartId)
+    val reply: Future[ShoppingCart.Summary] =
+      entityRef.askWithStatus(ShoppingCart.RemoveItem(in.itemId, _))
+    val response = reply.map(cart => toProtoCart(cart))
     convertError(response)
   }
 }

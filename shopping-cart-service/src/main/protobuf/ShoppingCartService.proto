@@ -12,6 +12,7 @@ service ShoppingCartService {
   rpc Checkout (CheckoutRequest) returns (Cart) {}
   rpc GetCart (GetCartRequest) returns (Cart) {}
   rpc RemoveItem (RemoveItemRequest) returns (Cart) {}
+  rpc GetItemPopularity(GetItemPopularityRequest) returns (GetItemPopularityResponse) {}
 }
 
 message AddItemRequest {
@@ -31,6 +32,15 @@ message GetCartRequest {
 message RemoveItemRequest {
   string cartId = 1;
   string itemId = 2;
+}
+
+message GetItemPopularityRequest {
+  string itemId = 1;
+}
+
+message GetItemPopularityResponse {
+  string itemId = 1;
+  int64 popularityCount = 2;
 }
 
 message Cart {

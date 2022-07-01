@@ -5,6 +5,11 @@ import akka.actor.typed.ActorSystem
 import akka.management.cluster.bootstrap.ClusterBootstrap
 import akka.management.scaladsl.AkkaManagement
 import org.slf4j.LoggerFactory
+import shopping.cart.repository.{
+  ItemPopularityRepositoryImpl,
+  ScalikeJdbcSetup
+}
+
 import scala.util.control.NonFatal
 
 object Main {
@@ -28,17 +33,18 @@ object Main {
     ClusterBootstrap(system).start()
     ShoppingCart.init(system)
 
+    ScalikeJdbcSetup.init(system)
+    val itemPopularityRepository = new ItemPopularityRepositoryImpl()
+    ItemPopularityProjection.init(system, itemPopularityRepository)
+
     val grpcInterface =
       system.settings.config.getString("shopping-cart-service.grpc.interface")
     val grpcPort =
       system.settings.config.getInt("shopping-cart-service.grpc.port")
-    val grpcService = new ShoppingCartServiceImpl(system)
-    ShoppingCartServer.start(
-      grpcInterface,
-      grpcPort,
-      system,
-      grpcService
-    )
+    val grpcService = new ShoppingCartServiceImpl(system, itemPopularityRepository)
+    ShoppingCartServer.start(grpcInterface, grpcPort, system, grpcService)
+
+
   }
 
 }

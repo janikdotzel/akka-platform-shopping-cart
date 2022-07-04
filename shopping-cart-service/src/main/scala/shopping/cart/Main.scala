@@ -29,11 +29,13 @@ object Main {
   }
 
   def init(system: ActorSystem[_]): Unit = {
+    ScalikeJdbcSetup.init(system)
+
     AkkaManagement(system).start()
     ClusterBootstrap(system).start()
+
     ShoppingCart.init(system)
 
-    ScalikeJdbcSetup.init(system)
     val itemPopularityRepository = new ItemPopularityRepositoryImpl()
     ItemPopularityProjection.init(system, itemPopularityRepository)
 
@@ -41,10 +43,8 @@ object Main {
       system.settings.config.getString("shopping-cart-service.grpc.interface")
     val grpcPort =
       system.settings.config.getInt("shopping-cart-service.grpc.port")
-    val grpcService = new ShoppingCartServiceImpl(system, itemPopularityRepository)
+    val grpcService =
+      new ShoppingCartServiceImpl(system, itemPopularityRepository)
     ShoppingCartServer.start(grpcInterface, grpcPort, system, grpcService)
-
-
   }
-
 }

@@ -32,7 +32,7 @@ object Main {
 
   def init(system: ActorSystem[_], orderService: ShoppingOrderService): Unit = {
     // Setup utility
-    ScalikeJdbcSetup.init(system)
+    ScalikeJdbcSetup.init(system)Ï
     AkkaManagement(system).start()
     ClusterBootstrap(system).start()
     // Setup EventSourced entity

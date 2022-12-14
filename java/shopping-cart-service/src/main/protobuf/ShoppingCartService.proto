@@ -8,6 +8,7 @@ package shoppingcart;
 // gRPC definition for ShoppingCartService
 
 
+
 service ShoppingCartService {
 
 
@@ -16,8 +17,13 @@ service ShoppingCartService {
     
     rpc Checkout (CheckoutRequest) returns (Cart) {}
     rpc GetCart (GetCartRequest) returns (Cart) {}
+    
 
+    
+    rpc GetItemPopularity(GetItemPopularityRequest) returns (GetItemPopularityResponse) {}
+    
 }
+
 
 
 
@@ -52,3 +58,14 @@ message Item {
     string itemId = 1;
     int32 quantity = 2;
 }
+
+
+message GetItemPopularityRequest {
+    string itemId = 1;
+}
+
+message GetItemPopularityResponse {
+    string itemId = 1;
+    int64 popularityCount = 2;
+}
+

@@ -89,9 +89,7 @@ public final class ShoppingCart
     public int itemCount(String itemId) {
       return items.get(itemId);
     }
-    
   }
-
   
 
   /** This interface defines all the commands (messages) that the ShoppingCart actor supports. */
@@ -140,7 +138,6 @@ public final class ShoppingCart
   }
 
   /** A command to checkout the shopping cart. */
-  
   public static final class Checkout implements Command {
     final ActorRef<StatusReply<Summary>> replyTo;
 
@@ -149,10 +146,8 @@ public final class ShoppingCart
       this.replyTo = replyTo;
     }
   }
-  
 
   /** A command to get the current state of the shopping cart. */
-  
   public static final class Get implements Command {
     final ActorRef<Summary> replyTo;
 
@@ -161,10 +156,8 @@ public final class ShoppingCart
       this.replyTo = replyTo;
     }
   }
-  
 
   /** Summary of the shopping cart state, used in reply messages. */
-  
   public static final class Summary implements CborSerializable {
     final Map<String, Integer> items;
     final boolean checkedOut;
@@ -175,7 +168,6 @@ public final class ShoppingCart
       this.checkedOut = checkedOut;
     }
   }
-  
 
   abstract static class Event implements CborSerializable {
     public final String cartId;
@@ -282,7 +274,6 @@ public final class ShoppingCart
     }
   }
 
-  
   static final class CheckedOut extends Event {
     final Instant eventTime;
 
@@ -304,33 +295,53 @@ public final class ShoppingCart
       return Objects.hash(eventTime);
     }
   }
-  
 
   static final EntityTypeKey<Command> ENTITY_KEY =
       EntityTypeKey.create(Command.class, "ShoppingCart");
 
+  
+  static final List<String> TAGS =
+      Collections.unmodifiableList(
+          Arrays.asList("carts-0", "carts-1", "carts-2", "carts-3", "carts-4"));
+
+  
   public static void init(ActorSystem<?> system) {
     ClusterSharding.get(system)
         .init(
             Entity.of(
                 ENTITY_KEY,
                 entityContext -> {
-                  return ShoppingCart.create(entityContext.getEntityId());
+                  int i = Math.abs(entityContext.getEntityId().hashCode() % TAGS.size());
+                  String selectedTag = TAGS.get(i);
+                  return ShoppingCart.create(entityContext.getEntityId(), selectedTag);
                 }));
   }
+  
+  
 
-  public static Behavior<Command> create(String cartId) {
-    return Behaviors.setup(ctx -> EventSourcedBehavior.start(new ShoppingCart(cartId), ctx));
+  
+  public static Behavior<Command> create(String cartId, String projectionTag) {
+    return Behaviors.setup(
+        ctx -> EventSourcedBehavior.start(new ShoppingCart(cartId, projectionTag), ctx));
   }
+
+  private final String projectionTag;
 
   private final String cartId;
 
-  private ShoppingCart(String cartId) {
+  private ShoppingCart(String cartId, String projectionTag) {
     super(
         PersistenceId.of(ENTITY_KEY.name(), cartId),
         SupervisorStrategy.restartWithBackoff(Duration.ofMillis(200), Duration.ofSeconds(5), 0.1));
     this.cartId = cartId;
+    this.projectionTag = projectionTag;
   }
+
+  @Override
+  public Set<String> tagsFor(Event event) { 
+    return Collections.singleton(projectionTag);
+  }
+  
 
   @Override
   public RetentionCriteria retentionCriteria() {
@@ -342,29 +353,17 @@ public final class ShoppingCart
     return new State();
   }
 
-  
-  
   @Override
   public CommandHandlerWithReply<Command, Event, State> commandHandler() {
-    return openShoppingCart()
-        .orElse(checkedOutShoppingCart())
-        
-        .orElse(getCommandHandler())
-        
-        .build();
+    return openShoppingCart().orElse(checkedOutShoppingCart()).orElse(getCommandHandler()).build();
   }
-  
-  
 
-  
   private CommandHandlerWithReplyBuilderByState<Command, Event, State, State> openShoppingCart() {
     return newCommandHandlerWithReplyBuilder()
         .forState(state -> !state.isCheckedOut())
         .onCommand(AddItem.class, this::onAddItem)
-        
         .onCommand(RemoveItem.class, this::onRemoveItem)
         .onCommand(AdjustItemQuantity.class, this::onAdjustItemQuantity)
-        
         .onCommand(Checkout.class, this::onCheckout);
   }
 
@@ -394,7 +393,6 @@ public final class ShoppingCart
           .thenReply(cmd.replyTo, updatedCart -> StatusReply.success(updatedCart.toSummary()));
     }
   }
-  
 
   private ReplyEffect<Event, State> onRemoveItem(State state, RemoveItem cmd) {
     if (state.hasItem(cmd.itemId)) {
@@ -429,7 +427,6 @@ public final class ShoppingCart
     }
   }
 
-  
   private CommandHandlerWithReplyBuilderByState<Command, Event, State, State>
       checkedOutShoppingCart() {
     return newCommandHandlerWithReplyBuilder()
@@ -442,7 +439,6 @@ public final class ShoppingCart
                         cmd.replyTo,
                         StatusReply.error(
                             "Can't add an item to an already checked out shopping cart")))
-        
         .onCommand(
             RemoveItem.class,
             cmd ->
@@ -459,7 +455,6 @@ public final class ShoppingCart
                         cmd.replyTo,
                         StatusReply.error(
                             "Can't adjust item on an already checked out shopping cart")))
-        
         .onCommand(
             Checkout.class,
             cmd ->
@@ -468,30 +463,23 @@ public final class ShoppingCart
                         cmd.replyTo,
                         StatusReply.error("Can't checkout already checked out shopping cart")));
   }
-  
 
-  
   private CommandHandlerWithReplyBuilderByState<Command, Event, State, State> getCommandHandler() {
     return newCommandHandlerWithReplyBuilder()
         .forAnyState()
         .onCommand(Get.class, (state, cmd) -> Effect().reply(cmd.replyTo, state.toSummary()));
   }
-  
 
-  
   @Override
   public EventHandler<State, Event> eventHandler() {
     return newEventHandlerBuilder()
         .forAnyState()
         .onEvent(ItemAdded.class, (state, evt) -> state.updateItem(evt.itemId, evt.quantity))
-        
         .onEvent(ItemRemoved.class, (state, evt) -> state.removeItem(evt.itemId))
         .onEvent(
             ItemQuantityAdjusted.class,
             (state, evt) -> state.updateItem(evt.itemId, evt.newQuantity))
-        
         .onEvent(CheckedOut.class, (state, evt) -> state.checkout(evt.eventTime))
         .build();
   }
-  
 }

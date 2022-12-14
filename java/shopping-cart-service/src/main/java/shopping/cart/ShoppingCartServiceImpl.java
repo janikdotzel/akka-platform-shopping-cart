@@ -1,18 +1,23 @@
 package shopping.cart;
 
 import akka.actor.typed.ActorSystem;
+import akka.actor.typed.DispatcherSelector;
 import akka.cluster.sharding.typed.javadsl.ClusterSharding;
 import akka.cluster.sharding.typed.javadsl.EntityRef;
 import akka.grpc.GrpcServiceException;
 import io.grpc.Status;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import shopping.cart.proto.*;
+import shopping.cart.repository.ItemPopularityRepository;
 
 public final class ShoppingCartServiceImpl implements ShoppingCartService {
 
@@ -21,10 +26,23 @@ public final class ShoppingCartServiceImpl implements ShoppingCartService {
   private final Duration timeout;
   private final ClusterSharding sharding;
 
-  public ShoppingCartServiceImpl(ActorSystem<?> system) {
+  
+  private final ItemPopularityRepository repository;
+  private final Executor blockingJdbcExecutor;
+
+  public ShoppingCartServiceImpl(
+      ActorSystem<?> system, ItemPopularityRepository repository) { 
+
+    DispatcherSelector dispatcherSelector =
+        DispatcherSelector.fromConfig("akka.projection.jdbc.blocking-jdbc-dispatcher");
+    this.blockingJdbcExecutor = system.dispatchers().lookup(dispatcherSelector); 
+
+    this.repository = repository;
     timeout = system.settings().config().getDuration("shopping-cart-service.ask-timeout");
     sharding = ClusterSharding.get(system);
   }
+
+  
 
   @Override
   public CompletionStage<Cart> addItem(AddItemRequest in) {
@@ -88,6 +106,22 @@ public final class ShoppingCartServiceImpl implements ShoppingCartService {
               else return toProtoCart(cart);
             });
     return convertError(protoCart);
+  }
+  
+
+  
+  @Override
+  public CompletionStage<GetItemPopularityResponse> getItemPopularity(GetItemPopularityRequest in) {
+
+    CompletionStage<Optional<ItemPopularity>> itemPopularity =
+        CompletableFuture.supplyAsync(
+            () -> repository.findById(in.getItemId()), blockingJdbcExecutor); 
+
+    return itemPopularity.thenApply(
+        popularity -> {
+          long count = popularity.map(ItemPopularity::getCount).orElse(0L);
+          return GetItemPopularityResponse.newBuilder().setPopularityCount(count).build();
+        });
   }
   
 
